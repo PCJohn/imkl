@@ -1,0 +1,61 @@
+kernels:
+  - class: ColorHistHash
+    params:
+      img_size: 16
+      channels: [0, 1]
+      bins: [8, 8]
+      ranges: [0, 180, 0, 256]
+      col: hsv
+      thresh: mean
+
+  - class: ColorHistHash
+    params:
+      img_size: 16
+      channels: [0, 1, 2]
+      bins: [8, 2, 2]
+      ranges: [0, 180, 0, 256, 0, 256]
+      col: hsv
+      thresh: mean
+
+  - class: SqueezeNetHash
+    params:
+      img_size: 32
+      model_path: models/squeezenet1_1_1-layer_input-32.onnx
+      thresh: mean
+
+  - class: GaborHash
+    params:
+      img_size: 32
+      model_path: models/gabor_filter-7.onnx
+      thresh: mean
+
+  - class: WaveletHash
+    params:
+      hash_size: 8
+      scale: 4
+      thresh: median
+      blur: 3
+
+  - class: PerceptualHash
+    params:
+      hash_size: 8
+      highfreq_factor: 4
+      thresh: median
+
+  - class: PixelHash
+    params:
+      hash_size: 8
+      thresh: mean # Average Hash or aHash
+
+  - class: PixelHash
+    params:
+      hash_size: 8
+      thresh: median # Median Hash or mHash
+
+  - class: HDiffHash
+    params:
+      hash_size: 8
+
+  - class: VDiffHash
+    params:
+      hash_size: 8
