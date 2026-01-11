@@ -108,7 +108,9 @@ class MemoizedImage:
         self.init_area = img.shape[0] * img.shape[1]
         self.cache = {(img.shape[:2], self.col): img}
 
-    def preproc(self, img_size: tuple[int, int], col: str) -> NDArray[np.uint8]:
+    def preproc(
+        self, img_size: tuple[int, int], col: str, edges: bool = False
+    ) -> NDArray[np.uint8]:
         # Simply recall if already in cache
         if (img_size, col) in self.cache:
             return self.cache[(img_size, col)]
@@ -125,6 +127,11 @@ class MemoizedImage:
             )
         )
         img = self.cache[min_size_key]
+        # Keep only edges
+        if edges:
+            img = cv2.Canny(img, 100, 200)
+            if self.col != "gray":
+                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         # Resize
         if img_size != img.shape[:2]:
             img = cv2.resize(img, img_size[::-1], interpolation=cv2.INTER_AREA)

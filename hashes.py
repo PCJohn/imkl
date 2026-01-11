@@ -10,16 +10,23 @@ from utils import MemoizedImage
 class ImageHash(ABC):
     _THRESH_FUNCS = {"mean": np.mean, "median": np.median}
 
-    def __init__(self, img_size: tuple[int, int], col: str, thresh: str = "mean"):
+    def __init__(
+        self,
+        img_size: tuple[int, int],
+        col: str,
+        thresh: str = "mean",
+        edges: bool = False,
+    ):
         self.col = col
         self.img_size = img_size
         self.img_area = img_size[0] * img_size[1]
         self.thresh = thresh
+        self.edges = edges
         self.thresh_func = self._THRESH_FUNCS.get(thresh)
 
     def preproc(self, img: MemoizedImage):
         # Resize, set color space and cast to fp32
-        return img.preproc(self.img_size, self.col).astype(np.float32)
+        return img.preproc(self.img_size, self.col, self.edges).astype(np.float32)
 
     def bitvec(self, x: NDArray[np.float32]) -> NDArray[np.uint8]:
         # Threshold features and binarize to bit vectors
@@ -74,8 +81,10 @@ class ColorHistHash(ImageHash):
 
 
 class GaborHash(ImageHash):
-    def __init__(self, img_size: int, model_path: str, thresh: str):
-        super().__init__((img_size, img_size), "gray", thresh)
+    def __init__(
+        self, img_size: int, model_path: str, thresh: str, edges: bool = False
+    ):
+        super().__init__((img_size, img_size), "gray", thresh, edges)
         self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.input_name = self.sess.get_inputs()[0].name
 
@@ -102,22 +111,26 @@ class SqueezeNetHash(ImageHash):
 
 
 class PerceptualHash(ImageHash):
-    def __init__(self, hash_size: int, highfreq_factor: int, thresh: str):
+    def __init__(
+        self, hash_size: int, highfreq_factor: int, thresh: str, edges: bool = False
+    ):
         super().__init__(
-            (hash_size * highfreq_factor, hash_size * highfreq_factor), "gray", thresh
+            (hash_size * highfreq_factor, hash_size * highfreq_factor),
+            "gray",
+            thresh,
+            edges,
         )
         self.hash_size = hash_size
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
         dct_low_freq = cv2.dct(img)[: self.hash_size, : self.hash_size]
-        # dct_low_freq = dct[: self.hash_size, : self.hash_size]
         return self.bitvec(dct_low_freq)
 
 
 class PixelHash(ImageHash):
-    def __init__(self, hash_size: int, thresh: str):
-        super().__init__((hash_size, hash_size), "gray", thresh)
+    def __init__(self, hash_size: int, thresh: str, edges: bool = False):
+        super().__init__((hash_size, hash_size), "gray", thresh, edges)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -125,8 +138,15 @@ class PixelHash(ImageHash):
 
 
 class WaveletHash(ImageHash):
-    def __init__(self, hash_size: int, scale: int, thresh: str, blur: int = 0):
-        super().__init__((hash_size * scale, hash_size * scale), "gray", thresh)
+    def __init__(
+        self,
+        hash_size: int,
+        scale: int,
+        thresh: str,
+        blur: int = 0,
+        edges: bool = False,
+    ):
+        super().__init__((hash_size * scale, hash_size * scale), "gray", thresh, edges)
         self.levels = int(np.log2(scale))
         self.blur = blur
 
@@ -175,8 +195,8 @@ class WaveletHash(ImageHash):
 
 
 class HDiffHash(ImageHash):
-    def __init__(self, hash_size: int):
-        super().__init__((hash_size + 1, hash_size), "gray")
+    def __init__(self, hash_size: int, edges: bool = False):
+        super().__init__((hash_size + 1, hash_size), "gray", edges)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -186,8 +206,8 @@ class HDiffHash(ImageHash):
 
 
 class VDiffHash(ImageHash):
-    def __init__(self, hash_size: int):
-        super().__init__((hash_size, hash_size + 1), "gray")
+    def __init__(self, hash_size: int, edges: bool = False):
+        super().__init__((hash_size, hash_size + 1), "gray", edges)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
