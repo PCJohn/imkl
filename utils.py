@@ -25,6 +25,7 @@ def multi_hist(
     matrices: NDArray[np.float32],
     ix_mask: tuple[list[int], list[int]],
     bins: NDArray[np.float32],
+    drop_diag: bool = False,
 ) -> NDArray[np.uint8]:
     """
     Computes N histograms, one per row given an (N x D) matrix.
@@ -39,6 +40,8 @@ def multi_hist(
     n_slices = matrices.shape[0]
     num_bins = len(bins) - 1
     masked_data = matrices[:, ix_mask[0], ix_mask[1]]
+    if drop_diag:
+        masked_data = masked_data[:, ~np.eye(masked_data.shape[1], dtype=bool)]
     bin_indices = np.searchsorted(bins, masked_data, side="right") - 1
     np.clip(bin_indices, 0, num_bins - 1, out=bin_indices)
     offsets = np.arange(n_slices).reshape(-1, 1, 1) * num_bins
