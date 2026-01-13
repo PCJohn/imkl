@@ -217,8 +217,8 @@ class VDiffHash(ImageHash):
 
 
 class HuMomentHash(ImageHash):
-    def __init__(self, img_size, thresh="mean", num_bins: int = 16):
-        super().__init__((img_size, img_size), "gray", thresh, True)
+    def __init__(self, img_size, num_bins: int = 16):
+        super().__init__((img_size, img_size), col="gray", thresh="mean", edges=True)
         self.num_bins = num_bins
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:

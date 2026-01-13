@@ -100,6 +100,12 @@ def multi_otsu(
     return thresholds, eta
 
 
+class ImagePreprocParams:
+    size: tuple = (0, 0)
+    col: str = "gray"
+    edges: bool = False
+
+
 class MemoizedImage:
     """
     Wrapper around an cv2 image that caches transformations applied it.
@@ -108,15 +114,16 @@ class MemoizedImage:
 
     def __init__(self, img):
         self.col = "gray" if img.ndim == 2 else "bgr"
+        self.edges = False
         self.init_area = img.shape[0] * img.shape[1]
-        self.cache = {(img.shape[:2], self.col): img}
+        self.cache = {(img.shape[:2], self.col, self.edges): img}
 
     def preproc(
         self, img_size: tuple[int, int], col: str, edges: bool = False
     ) -> NDArray[np.uint8]:
         # Simply recall if already in cache
-        if (img_size, col) in self.cache:
-            return self.cache[(img_size, col)]
+        if (img_size, col, edges) in self.cache:
+            return self.cache[(img_size, col, edges)]
         # Find the image in cache with the smallest size bigger than the target size
         img_area = img_size[0] * img_size[1]
         min_size_key = min(
@@ -139,7 +146,7 @@ class MemoizedImage:
         if img_size != img.shape[:2]:
             img = cv2.resize(img, img_size[::-1], interpolation=cv2.INTER_AREA)
         # Cache the resized version in the default color space
-        self.cache[(img_size, self.col)] = img
+        self.cache[(img_size, self.col, edges)] = img
         # Convert to the target color space
         if col == "gray":
             if img.ndim == 3:
@@ -147,6 +154,6 @@ class MemoizedImage:
         elif col == "hsv":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         # Update cache
-        if (img_size, col) not in self.cache:
-            self.cache[(img_size, col)] = img
+        if (img_size, col, edges) not in self.cache:
+            self.cache[(img_size, col, edges)] = img
         return img
