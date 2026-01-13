@@ -214,3 +214,23 @@ class VDiffHash(ImageHash):
         # Hash = binarized vertical spatial derivative
         diff = img[:-1, :] > img[1:, :]
         return diff.astype(np.uint8).flatten()
+
+
+class HuMomentHash(ImageHash):
+    def __init__(self, img_size, thresh="mean", num_bins: int = 16):
+        super().__init__((img_size, img_size), "gray", thresh, True)
+        self.num_bins = num_bins
+
+    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
+        img = self.preproc(img)
+        hu = cv2.HuMoments(cv2.moments(img)).flatten()
+        log_hu = -np.sign(hu) * np.log10(np.abs(hu), where=np.abs(hu) > 0)
+        # "Quantize" the Hu feature vector to a B-bit binary vector
+        # Use a tally instead of the binary equivalent of each entry to use hamming distance as a sim metric
+        bits = (
+            np.sign(log_hu) * np.log2(np.abs(log_hu), where=np.abs(log_hu) > 0) + 1e-8
+        ).astype(np.int8)
+        bits += self.num_bins // 2
+        hash = np.zeros((hu.size, self.num_bins), dtype=np.uint8)
+        hash[np.arange(self.num_bins) < bits[:, None]] = 1
+        return hash.flatten()

@@ -17,6 +17,11 @@ kernels:
       col: hsv
       thresh: mean
 
+  - class: HuMomentHash
+    params:
+      img_size: 32
+      thresh: mean
+
   - class: SqueezeNetHash
     params:
       img_size: 32
@@ -36,11 +41,54 @@ kernels:
       thresh: median
       blur: 3
 
+  - class: WaveletHash
+    params:
+      hash_size: 8
+      scale: 4
+      thresh: median
+      blur: 3
+      edges: true
+
+  - class: WaveletHash
+    params:
+      hash_size: 16
+      scale: 4
+      thresh: median
+      blur: 3
+
+  - class: WaveletHash
+    params:
+      hash_size: 16
+      scale: 4
+      thresh: median
+      blur: 3
+      edges: true
+
   - class: PerceptualHash
     params:
       hash_size: 8
       highfreq_factor: 4
       thresh: median
+
+  - class: PerceptualHash
+    params:
+      hash_size: 8
+      highfreq_factor: 4
+      thresh: median
+      edges: true
+
+  - class: PerceptualHash
+    params:
+      hash_size: 16
+      highfreq_factor: 4
+      thresh: median
+
+  - class: PerceptualHash
+    params:
+      hash_size: 16
+      highfreq_factor: 4
+      thresh: median
+      edges: true
 
   - class: PixelHash
     params:
@@ -50,12 +98,56 @@ kernels:
   - class: PixelHash
     params:
       hash_size: 8
+      thresh: mean # Average Hash or aHash
+      edges: true # only for edges
+
+  - class: PixelHash
+    params:
+      hash_size: 16
+      thresh: mean # Average Hash or aHash
+
+  - class: PixelHash
+    params:
+      hash_size: 16
+      thresh: mean # Average Hash or aHash
+      edges: true # only for edges
+
+  - class: PixelHash
+    params:
+      hash_size: 8
       thresh: median # Median Hash or mHash
+
+  - class: PixelHash
+    params:
+      hash_size: 8
+      thresh: median # Median Hash or mHash
+      edges: true
+
+  - class: PixelHash
+    params:
+      hash_size: 16
+      thresh: median # Median Hash or mHash
+
+  - class: PixelHash
+    params:
+      hash_size: 16
+      thresh: median # Median Hash or mHash
+      edges: true # only for edges
 
   - class: HDiffHash
     params:
       hash_size: 8
 
+  - class: HDiffHash
+    params:
+      hash_size: 16
+      edges: true
+
   - class: VDiffHash
     params:
       hash_size: 8
+
+  - class: VDiffHash
+    params:
+      hash_size: 16
+      edges: true
