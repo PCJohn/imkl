@@ -8,7 +8,13 @@ from utils import ImagePreprocTransforms, MemoizedImage
 
 
 class ImageHash(ABC):
-    _THRESH_FUNCS = {"mean": np.mean, "median": np.median}
+    _THRESH_FUNCS = {
+        "mean": np.mean,
+        "median": np.median,
+        "p50": np.median,
+        "p75": lambda x: np.percentile(x, 75),
+        "p90": lambda x: np.percentile(x, 90),
+    }
 
     def __init__(
         self,
@@ -67,8 +73,10 @@ class ColorHistHash(ImageHash):
         ranges: list[int],
         col: str = "hsv",
         thresh: str = "mean",
+        edges: bool = False,
+        log_polar: bool = False,
     ):
-        super().__init__((img_size, img_size), col, thresh)
+        super().__init__((img_size, img_size), col, thresh, edges, log_polar)
         self.channels = channels
         self.bins = bins
         self.ranges = ranges
@@ -102,8 +110,15 @@ class GaborHash(ImageHash):
 
 
 class SqueezeNetHash(ImageHash):
-    def __init__(self, img_size: tuple[int, int], model_path: str, thresh: str):
-        super().__init__((img_size, img_size), "col", thresh)
+    def __init__(
+        self,
+        img_size: tuple[int, int],
+        model_path: str,
+        thresh: str,
+        edges: bool = False,
+        log_polar: bool = False,
+    ):
+        super().__init__((img_size, img_size), "col", thresh, edges, log_polar)
         self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.input_name = self.sess.get_inputs()[0].name
 
