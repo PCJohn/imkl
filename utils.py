@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from numpy.typing import NDArray
+from typing import NamedTuple
 
 CV2Img = NDArray[np.uint8]
 
@@ -100,10 +101,10 @@ def multi_otsu(
     return thresholds, eta
 
 
-class ImagePreprocParams:
-    size: tuple = (0, 0)
-    col: str = "gray"
-    edges: bool = False
+class ImagePreprocParams(NamedTuple):
+    size: tuple[int, int]
+    col: str
+    edges: bool
 
 
 class MemoizedImage:
@@ -118,9 +119,8 @@ class MemoizedImage:
         self.init_area = img.shape[0] * img.shape[1]
         self.cache = {(img.shape[:2], self.col, self.edges): img}
 
-    def preproc(
-        self, img_size: tuple[int, int], col: str, edges: bool = False
-    ) -> NDArray[np.uint8]:
+    def preproc(self, preproc_params: ImagePreprocParams) -> NDArray[np.uint8]:
+        img_size, col, edges = preproc_params
         # Simply recall if already in cache
         if (img_size, col, edges) in self.cache:
             return self.cache[(img_size, col, edges)]
