@@ -103,8 +103,9 @@ def multi_otsu(
 
 class ImagePreprocParams(NamedTuple):
     size: tuple[int, int]
-    col: str
-    edges: bool
+    col: str = "gray"  # ["bgr", "gray", "hsv"]
+    edges: bool = False  # if true, use Canny edge
+    log_polar: bool = False  # if true, use log polar form
 
 
 class MemoizedImage:
@@ -116,11 +117,12 @@ class MemoizedImage:
     def __init__(self, img):
         self.col = "gray" if img.ndim == 2 else "bgr"
         self.edges = False
+        self.log_polar = False
+        self.cache = {(img.shape[:2], self.col, self.edges, self.log_polar): img}
         self.init_area = img.shape[0] * img.shape[1]
-        self.cache = {(img.shape[:2], self.col, self.edges): img}
 
     def preproc(self, preproc_params: ImagePreprocParams) -> NDArray[np.uint8]:
-        img_size, col, edges = preproc_params
+        img_size, col, edges, log_polar = preproc_params
         # Simply recall if already in cache
         if (img_size, col, edges) in self.cache:
             return self.cache[(img_size, col, edges)]
@@ -142,11 +144,22 @@ class MemoizedImage:
             img = cv2.Canny(img, 100, 200)
             if self.col != "gray":
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        # Apply log polar transform
+        if log_polar:
+            h, w = img.shape[:2]
+            center = (w // 2, h // 2)
+            img = cv2.warpPolar(
+                img,
+                dsize=(w, h),
+                center=center,
+                maxRadius=min(center),
+                flags=cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
+            )
         # Resize
         if img_size != img.shape[:2]:
             img = cv2.resize(img, img_size[::-1], interpolation=cv2.INTER_AREA)
         # Cache the resized version in the default color space
-        self.cache[(img_size, self.col, edges)] = img
+        self.cache[(img_size, self.col, edges, log_polar)] = img
         # Convert to the target color space
         if col == "gray":
             if img.ndim == 3:
@@ -154,6 +167,6 @@ class MemoizedImage:
         elif col == "hsv":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         # Update cache
-        if (img_size, col, edges) not in self.cache:
-            self.cache[(img_size, col, edges)] = img
+        if (img_size, col, edges, log_polar) not in self.cache:
+            self.cache[(img_size, col, edges, log_polar)] = img
         return img

@@ -16,8 +16,9 @@ class ImageHash(ABC):
         col: str,
         thresh: str = "mean",
         edges: bool = False,
+        log_polar: bool = False,
     ):
-        self.preproc_params = ImagePreprocParams(img_size, col, edges)
+        self.preproc_params = ImagePreprocParams(img_size, col, edges, log_polar)
         self.img_area = img_size[0] * img_size[1]
         self.thresh = thresh
         self.thresh_func = self._THRESH_FUNCS.get(thresh)
@@ -110,13 +111,19 @@ class SqueezeNetHash(ImageHash):
 
 class PerceptualHash(ImageHash):
     def __init__(
-        self, hash_size: int, highfreq_factor: int, thresh: str, edges: bool = False
+        self,
+        hash_size: int,
+        highfreq_factor: int,
+        thresh: str,
+        edges: bool = False,
+        log_polar: bool = False,
     ):
         super().__init__(
             (hash_size * highfreq_factor, hash_size * highfreq_factor),
             "gray",
             thresh,
             edges,
+            log_polar,
         )
         self.hash_size = hash_size
 
@@ -127,8 +134,10 @@ class PerceptualHash(ImageHash):
 
 
 class PixelHash(ImageHash):
-    def __init__(self, hash_size: int, thresh: str, edges: bool = False):
-        super().__init__((hash_size, hash_size), "gray", thresh, edges)
+    def __init__(
+        self, hash_size: int, thresh: str, edges: bool = False, log_polar: bool = False
+    ):
+        super().__init__((hash_size, hash_size), "gray", thresh, edges, log_polar)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -143,8 +152,11 @@ class WaveletHash(ImageHash):
         thresh: str,
         blur: int = 0,
         edges: bool = False,
+        log_polar: bool = False,
     ):
-        super().__init__((hash_size * scale, hash_size * scale), "gray", thresh, edges)
+        super().__init__(
+            (hash_size * scale, hash_size * scale), "gray", thresh, edges, log_polar
+        )
         self.levels = int(np.log2(scale))
         self.blur = blur
 
@@ -193,8 +205,8 @@ class WaveletHash(ImageHash):
 
 
 class HDiffHash(ImageHash):
-    def __init__(self, hash_size: int, edges: bool = False):
-        super().__init__((hash_size + 1, hash_size), "gray", edges)
+    def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
+        super().__init__((hash_size + 1, hash_size), "gray", edges, log_polar)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -204,8 +216,8 @@ class HDiffHash(ImageHash):
 
 
 class VDiffHash(ImageHash):
-    def __init__(self, hash_size: int, edges: bool = False):
-        super().__init__((hash_size, hash_size + 1), "gray", edges)
+    def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
+        super().__init__((hash_size, hash_size + 1), "gray", edges, log_polar)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
