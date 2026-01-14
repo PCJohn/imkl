@@ -23,10 +23,16 @@ def gabor_kernel(theta, frequency, sigma=4.0, size=11):
 
 def make_gabor_bank(num_scales=5, num_orients=8, filter_size=11, sigmas=[2, 4, 8]):
     bank = []
-    freqs = np.linspace(0.1, 0.4, num_scales)  # frequencies in cycles/pixel
+    # 1. Adaptive Frequency Spacing (Octave-based)
+    # Start at a high frequency (e.g., 0.5) and decrease by half for each scale.
+    # This ensures the kernel captures different levels of detail (coarse to fine).
+    f_max = 0.4  # Cycles per pixel (Nyquist limit is 0.5)
+    freqs = np.array([f_max / (np.sqrt(2) ** i) for i in range(num_scales)])
     for f in freqs:
         for k in range(num_orients):
-            for s in sigmas:
+            # heuristic sigma = 1/f if not provided already
+            current_sigma = [1.0 / f] if not sigmas else sigmas
+            for s in current_sigma:
                 theta = k * np.pi / num_orients
                 kern = gabor_kernel(theta, f, sigma=s, size=filter_size)
                 bank.append(kern.astype(np.float32))
@@ -34,7 +40,7 @@ def make_gabor_bank(num_scales=5, num_orients=8, filter_size=11, sigmas=[2, 4, 8
 
 
 class GaborFeatureNet(nn.Module):
-    def __init__(self, bank):
+    def __init__(self, bank, pool_size=(1, 1), energy="square"):
         super().__init__()
         num_filters = len(bank)
         # Conv with fixed weights
@@ -47,27 +53,35 @@ class GaborFeatureNet(nn.Module):
             weight = np.stack(bank)[:, None, :, :]
             self.conv.weight.copy_(torch.from_numpy(weight))
         self.conv.weight.requires_grad = False
-        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.pool = nn.AdaptiveAvgPool2d(pool_size)
+        self.energy = energy
 
     def forward(self, x):
         x = self.conv(x)
-        return self.pool(x**2).flatten(1)
+        if self.energy == "square":
+            x = x**2
+        elif self.energy == "abs":
+            x = x.abs()
+        return self.pool(torch.log1p(x**2)).flatten(1)
 
 
 if __name__ == "__main__":
     IMG_SIZE = 32
-    FILTER_SIZE = 7
-    NUM_SCALE = 5
+    FILTER_SIZE = 7  # good for 32 x 32: 7 or 11
+    NUM_SCALE = 4
     NUM_ORIENTS = 8
-    SIGMAS = [2, 4, 8]
+    SIGMAS = None  # [2, 4, 8]
+    POOL = (2, 2)  # (2, 2) or (4, 4)
+    ENERGY = "square"  # "square" or "abs"
+    ONNX_PATH = f"C:\\Users\\prith\\code\\imkl\\models\\gabor_filter-{FILTER_SIZE}_pool-{POOL[0]}_energy-{ENERGY}.onnx"
+
     bank = make_gabor_bank(
         num_scales=NUM_SCALE,
         num_orients=NUM_ORIENTS,
         filter_size=FILTER_SIZE,
         sigmas=SIGMAS,
     )
-    ONNX_PATH = f"C:\\Users\\prith\\code\\imkl\\gabor_filter-{FILTER_SIZE}.onnx"
-    model = GaborFeatureNet(bank)
+    model = GaborFeatureNet(bank, POOL, ENERGY)
     dummy = torch.randn(1, 1, IMG_SIZE, IMG_SIZE)
     # Export to ONNX
     torch.onnx.export(
@@ -76,7 +90,7 @@ if __name__ == "__main__":
         ONNX_PATH,
         input_names=["input"],
         output_names=["features"],
-        opset_version=12,
+        opset_version=17,
     )
     print(f"Saved Gabor filter bank model to: {ONNX_PATH}")
 
