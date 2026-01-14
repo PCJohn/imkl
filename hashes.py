@@ -81,9 +81,14 @@ class ColorHistHash(ImageHash):
 
 class GaborHash(ImageHash):
     def __init__(
-        self, img_size: int, model_path: str, thresh: str, edges: bool = False
+        self,
+        img_size: int,
+        model_path: str,
+        thresh: str,
+        edges: bool = False,
+        log_polar: bool = False,
     ):
-        super().__init__((img_size, img_size), "gray", thresh, edges)
+        super().__init__((img_size, img_size), "gray", thresh, edges, log_polar)
         self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.input_name = self.sess.get_inputs()[0].name
 
