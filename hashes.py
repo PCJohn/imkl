@@ -4,7 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 import onnxruntime as ort
 
-from utils import ImagePreprocParams, MemoizedImage
+from utils import ImagePreprocTransforms, MemoizedImage
 
 
 class ImageHash(ABC):
@@ -18,14 +18,14 @@ class ImageHash(ABC):
         edges: bool = False,
         log_polar: bool = False,
     ):
-        self.preproc_params = ImagePreprocParams(img_size, col, edges, log_polar)
+        self.preproc_transform = ImagePreprocTransforms(img_size, col, edges, log_polar)
         self.img_area = img_size[0] * img_size[1]
         self.thresh = thresh
         self.thresh_func = self._THRESH_FUNCS.get(thresh)
 
     def preproc(self, img: MemoizedImage):
         # Resize, set color space and cast to fp32
-        return img.preproc(self.preproc_params).astype(np.float32)
+        return img.preproc(self.preproc_transform).astype(np.float32)
 
     def bitvec(self, x: NDArray[np.float32]) -> NDArray[np.uint8]:
         # Threshold features and binarize to bit vectors

@@ -101,7 +101,7 @@ def multi_otsu(
     return thresholds, eta
 
 
-class ImagePreprocParams(NamedTuple):
+class ImagePreprocTransforms(NamedTuple):
     size: tuple[int, int]
     col: str = "gray"  # ["bgr", "gray", "hsv"]
     edges: bool = False  # if true, use Canny edge
@@ -118,21 +118,23 @@ class MemoizedImage:
         self.col = "gray" if img.ndim == 2 else "bgr"
         self.edges = False
         self.log_polar = False
-        self.cache = {(img.shape[:2], self.col, self.edges, self.log_polar): img}
-        self.init_area = img.shape[0] * img.shape[1]
+        orig_transform = ImagePreprocTransforms(
+            img.shape[:2], self.col, self.edges, self.log_polar
+        )
+        self.cache = {orig_transform: img}
+        self.orig_area = img.shape[0] * img.shape[1]
 
-    def preproc(self, preproc_params: ImagePreprocParams) -> NDArray[np.uint8]:
-        img_size, col, edges, log_polar = preproc_params
-        # Simply recall if already in cache
-        if (img_size, col, edges) in self.cache:
-            return self.cache[(img_size, col, edges)]
+    def preproc(self, transforms: ImagePreprocTransforms) -> NDArray[np.uint8]:
+        #  Simply recall if already in cache
+        if transforms in self.cache:
+            return self.cache[transforms]
         # Find the image in cache with the smallest size bigger than the target size
-        img_area = img_size[0] * img_size[1]
+        img_area = transforms.size[0] * transforms.size[1]
         min_size_key = min(
             filter(
                 lambda key: (
                     key[0][0] * key[0][1] >= img_area
-                    or key[0][0] * key[0][1] == self.init_area
+                    or key[0][0] * key[0][1] == self.orig_area
                 )
                 and key[1] == self.col,
                 self.cache.keys(),
@@ -140,12 +142,12 @@ class MemoizedImage:
         )
         img = self.cache[min_size_key]
         # Keep only edges
-        if edges:
+        if transforms.edges:
             img = cv2.Canny(img, 100, 200)
             if self.col != "gray":
                 img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
         # Apply log polar transform
-        if log_polar:
+        if transforms.log_polar:
             h, w = img.shape[:2]
             center = (w // 2, h // 2)
             img = cv2.warpPolar(
@@ -156,17 +158,17 @@ class MemoizedImage:
                 flags=cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
             )
         # Resize
-        if img_size != img.shape[:2]:
-            img = cv2.resize(img, img_size[::-1], interpolation=cv2.INTER_AREA)
-        # Cache the resized version in the default color space
-        self.cache[(img_size, self.col, edges, log_polar)] = img
+        if transforms.size != img.shape[:2]:
+            img = cv2.resize(img, transforms.size[::-1], interpolation=cv2.INTER_AREA)
+        # Cache the resized version in the _default_ color space
+        self.cache[(transforms.size, self.col, self.edges, self.log_polar)] = img
         # Convert to the target color space
-        if col == "gray":
+        if transforms.col == "gray":
             if img.ndim == 3:
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        elif col == "hsv":
+        elif transforms.col == "hsv":
             img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         # Update cache
-        if (img_size, col, edges, log_polar) not in self.cache:
-            self.cache[(img_size, col, edges, log_polar)] = img
+        if transforms not in self.cache:
+            self.cache[transforms] = img
         return img
