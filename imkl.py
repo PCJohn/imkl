@@ -1,13 +1,10 @@
-import sys, time, pickle, yaml
-
-import cv2
+import yaml
 import numpy as np
 from numpy.typing import NDArray
 
+from itertools import product
 from hashes import *
 from utils import multi_hist, multi_otsu, softmax, MemoizedImage
-
-from sklearn.naive_bayes import BernoulliNB
 
 
 CV2Img = NDArray[np.uint8]
@@ -25,20 +22,22 @@ class MKLClassifier:
     def __init__(self, config_file):
         with open(config_file, "r") as f:
             self.cfg = yaml.safe_load(f)
-        self.hash_funcs = [
-            globals()[c["class"]](**c["params"]) for c in self.cfg["kernels"]
-        ]
+        # Create hash functions with all combinations of shared preprocs
+        preproc_ops = self.cfg["shared_preproc"].keys()
+        preproc_val = self.cfg["shared_preproc"].values()
+        self.hash_funcs = []
+        for kern in self.cfg["kernels"]:
+            params = kern["params"]
+            for combo in product(*preproc_val):
+                params.update(dict(zip(preproc_ops, combo)))
+                self.hash_funcs.append(globals()[kern["class"]](**params))
         self.num_hash = len(self.hash_funcs)
         # Sort hash functions by descending order of input image sizes
         self.hash_funcs.sort(key=lambda hf: hf.img_area, reverse=True)
-        self.max_img_size = self.hash_funcs[0].img_size
         # Weight vector tracking kernel separability per hash function
         self.weights = np.ones((self.num_hash,), dtype=np.float32) / self.num_hash
-        # Actual classification models
-        self.models = [BernoulliNB() for _ in range(self.num_hash)]
 
     def reset(self):
-        # Resets kernel weights.
         self.weights = np.ones((self.num_hash,), dtype=np.float32) / self.num_hash
 
     def hash(self, imgs: list[CV2Img]):
@@ -56,8 +55,22 @@ class MKLClassifier:
             for p, hash in enumerate(self.hash_funcs)
         }
 
-    def compute_all_kernels(
-        self, hashes: dict[int, NDArray[np.uint8]], center: bool = False
+    def combine_kernels(self, kernels: NDArray[np.float32]) -> NDArray[np.float32]:
+        """
+        Computes a weighted sum of a stack of kernels using learned weights.
+
+        Args:
+            kernels: An (K, N, N) np.float32 stack of kernel matrices
+        Returns:
+            An (N, N) matrix that is the weighted sum of the K input matrices.
+        """
+        return np.einsum("ijk,i->jk", kernels, self.weights).astype(np.float32)
+
+    def kernels(
+        self,
+        hashes: dict[int, NDArray[np.uint8]],
+        center: bool = False,
+        combine: bool = False,
     ) -> NDArray[np.float32]:
         """
         Computes a stack of kernel matrices using multiple hash functions.
@@ -76,63 +89,57 @@ class MKLClassifier:
             hash_func.sim_batch(hashes[p], out=K[p])
             for p, hash_func in enumerate(self.hash_funcs)
         ]
-        # Rescale to [-1, 1] as hash sim is in [0, 1]
-        K *= 2
-        K -= 1
         if center:
+            # Apply cetering to each kernel
             I = np.eye(N)
             I_N = I - np.ones((N, N)) / N
             for p in range(K.shape[0]):
                 K[p] = I_N @ K[p] @ I_N
+        if combine:
+            # Return a linear combination of kernels using weights learned in fit()
+            return self.combine_kernels(K)
         return K
 
-    def fit(
-        self, imgs_cat1: list[CV2Img], imgs_cat2: list[CV2Img], method: str = "otsu"
-    ) -> None:
+    def fit(self, imgs_cat1: list[CV2Img], imgs_cat2: list[CV2Img]) -> None:
         """
         Computes weights per kernel indicating how well each "separates" samples from two classes.
 
         Args:
             imgs_cat1: List of cv2 images of class 1.
             imgs_cat2: List of cv2 images of class 2.
-            method: Which measure to use to estimate separability per kernel. Must be one of ["otsu", "align", "mmd"] (default: "otsu").
-            normalize: If true, normalizes weights to sum to 1. Default = True.
         """
+        if self.weights.size == 1:
+            # Skip computing weights if we have just one kernel
+            return
         # Add augmentations
         imgs = imgs_cat1 + imgs_cat2
         # Make label vector
         Y = np.full(len(imgs), self._CAT1_LABEL)
         Y[len(imgs_cat1) :] = self._CAT2_LABEL
-        # Compute kernel matrices
+        # Compute centered kernel matrices
         hashes = self.hash(imgs)
-        K = self.compute_all_kernels(hashes)
-        # Compute kernel separability
-        if method == "alignment":
-            # Weight kernels based on alignment with label kernel
-            pass
-        elif method == "mmd":
-            # Weight kernels based on max mean discrepancy
-            pass
-        elif method == "otsu":
-            # Kernel separability using otsu threshold (hacky, but smells like a special case of the general kernel based sample test)
-            # intra class similarities
-            intra_sim_mask = np.ix_(Y == self._CAT1_LABEL, Y == self._CAT1_LABEL)
-            # inter class similarities
-            inter_sim_mask = np.ix_(Y == self._CAT1_LABEL, Y == self._CAT2_LABEL)
-            # Histograms of intra and inter class distances
-            intra_sim_hist = multi_hist(K, intra_sim_mask, self._BINS)
-            inter_sim_hist = multi_hist(K, inter_sim_mask, self._BINS)
-            # Otsu threshold ideal for the combined histogram (regardless of labels)
-            # Use the Otsu effectiveness score as weight
-            combined_hist = intra_sim_hist + inter_sim_hist
-            thresh, effectiveness = multi_otsu(combined_hist, self._BINS)
-            self.weights = effectiveness
-        # Normalize weights
-        self.weights = softmax(self.weights)
-        # self.weights /= self.weights.sum()
+        K = self.kernels(hashes, combine=False, center=True)
+        # Centered kernel alignment
+        label = np.outer(Y, Y)
+        cross = np.einsum("knn,nn->k", K, label)
+        norm_K = np.sqrt(np.einsum("knn,knn->k", K, K))
+        norm_L = np.linalg.norm(label, ord="fro")
+        self.weights = cross / (norm_K * norm_L)
+
+    def fit_models(self, hashes, labels):
+        """
+        Fit classification models.
+
+        Args:
+            hashes: A (N, D) binary numpy array with perceptual hashes.
+            labels: A numpy array with target binary classification labels.
+        """
+        from sklearn.naive_bayes import BernoulliNB
+
+        self.models = [BernoulliNB() for _ in range(self.num_hash)]
         # Train classifiers with different types of hashes
         for p in range(self.num_hash):
-            self.models[p].fit(np.array(hashes[p]), Y)
+            self.models[p].fit(np.array(hashes[p]), labels)
 
     def predict(self, imgs: list[CV2Img]) -> NDArray[np.float32]:
         """
@@ -142,7 +149,7 @@ class MKLClassifier:
 
         Args:
             imgs: List of N images to classify.
-        Return:
+        Returns:
             An (N,) shaped numpy array with predicted class labels.
         """
         if not imgs:
