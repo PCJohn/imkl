@@ -12,8 +12,9 @@ class ImageHash(ABC):
         "mean": np.mean,
         "median": np.median,
         "p50": np.median,
-        "p75": lambda x: np.percentile(x, 75),
         "p90": lambda x: np.percentile(x, 90),
+        "p95": lambda x: np.percentile(x, 95),
+        "p99": lambda x: np.percentile(x, 99),
     }
 
     def __init__(
@@ -64,27 +65,70 @@ class ImageHash(ABC):
         return out
 
 
-class ColorHistHash(ImageHash):
+class ColorHash(ImageHash):
     def __init__(
         self,
         img_size: int,
-        channels: list[int],
-        bins: list[int],
-        ranges: list[int],
-        col: str = "hsv",
-        thresh: str = "mean",
         edges: bool = False,
         log_polar: bool = False,
     ):
-        super().__init__((img_size, img_size), col, thresh, edges, log_polar)
-        self.channels = channels
-        self.bins = bins
-        self.ranges = ranges
+        super().__init__((img_size, img_size), "bgr", "mean", edges, log_polar)
 
-    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
-        img = self.preproc(img)
-        h = cv2.calcHist([img], self.channels, None, self.bins, self.ranges)
-        return self.bitvec(h)
+    def feat(self, img: MemoizedImage):
+        """
+        Color hash based on colorhash in https://github.com/JohannesBuchner/imagehash
+        Ref: https://github.com/JohannesBuchner/imagehash/blob/master/imagehash/__init__.py#L395
+
+        Args:
+            img (MemoizedImage): Image to hash
+        Returns:
+            A binary numpy array.
+        """
+        img = self.preproc(img).astype(np.uint8)
+        """
+        if self.preproc_transform.edges:
+            edges = cv2.Canny(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 100, 200)
+            colored_edges = np.zeros_like(img)
+            colored_edges[edges == 255] = img[edges == 255]
+            img = colored_edges
+        """
+        binbits = 3
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).flatten()
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        h_raw, s, v = cv2.split(hsv)
+        # Opencv has the Hue channel in range [0, 180]
+        h = (h_raw.astype(np.float32) / 179 * 255).astype(np.uint8).flatten()
+        s = s.flatten()
+        mask_black = gray < 32  # 32 = 256 // 8
+        frac_black = np.mean(mask_black)
+        mask_gray = s < 85  # 85 = 256 // 3
+        frac_gray = np.logical_and(~mask_black, mask_gray).mean()
+        mask_colors = np.logical_and(~mask_black, ~mask_gray)
+        mask_faint = np.logical_and(mask_colors, s < 170)  # 170 = 256 * 2 // 3
+        mask_bright = np.logical_and(mask_colors, s > 170)  # 170 = 256 * 2 // 3
+        hue_bins = np.linspace(0, 255, 7)  # 7 = 6 + 1 for 6 bins
+        num_hue_bins = len(hue_bins) - 1
+        c = max(1, mask_colors.sum())
+        h_faint_counts = (
+            np.zeros(num_hue_bins)
+            if not mask_faint.any()
+            else np.histogram(h[mask_faint], bins=hue_bins)[0]
+        )
+        h_bright_counts = (
+            np.zeros(num_hue_bins)
+            if not mask_bright.any()
+            else np.histogram(h[mask_bright], bins=hue_bins)[0]
+        )
+        raw_values = np.concatenate(
+            ([frac_black, frac_gray], h_faint_counts / c, h_bright_counts / c)
+        )
+        max_val = 2**binbits
+        values = np.clip(np.floor(raw_values * max_val), 0, max_val - 1).astype(
+            np.uint8
+        )
+        shifts = np.arange(binbits - 1, -1, -1, dtype=np.uint8)
+        bitvec = (values[:, np.newaxis] >> shifts) & 1
+        return bitvec.flatten()
 
 
 class GaborHash(ImageHash):
@@ -226,41 +270,17 @@ class WaveletHash(ImageHash):
 
 class HDiffHash(ImageHash):
     def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
-        super().__init__((hash_size + 1, hash_size), "gray", edges, log_polar)
-
-    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
-        img = self.preproc(img)
-        # Hash = binarized horizontal spatial derivative
-        diff = img[:, :-1] > img[:, 1:]
-        return diff.astype(np.uint8).flatten()
-
-
-class VDiffHash(ImageHash):
-    def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
         super().__init__((hash_size, hash_size + 1), "gray", edges, log_polar)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
-        # Hash = binarized vertical spatial derivative
-        diff = img[:-1, :] > img[1:, :]
-        return diff.astype(np.uint8).flatten()
+        return (img[:, 1:] > img[:, :-1]).astype(np.uint8).flatten()
 
 
-class HuMomentHash(ImageHash):
-    def __init__(self, img_size, num_bins: int = 16):
-        super().__init__((img_size, img_size), col="gray", thresh="mean", edges=True)
-        self.num_bins = num_bins
+class VDiffHash(ImageHash):
+    def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
+        super().__init__((hash_size + 1, hash_size), "gray", edges, log_polar)
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
-        hu = cv2.HuMoments(cv2.moments(img)).flatten()
-        log_hu = -np.sign(hu) * np.log10(np.abs(hu), where=np.abs(hu) > 0)
-        # "Quantize" the Hu feature vector to a B-bit binary vector
-        # Use a tally instead of the binary equivalent of each entry to use hamming distance as a sim metric
-        bits = (
-            np.sign(log_hu) * np.log2(np.abs(log_hu), where=np.abs(log_hu) > 0) + 1e-8
-        ).astype(np.int8)
-        bits += self.num_bins // 2
-        hash = np.zeros((hu.size, self.num_bins), dtype=np.uint8)
-        hash[np.arange(self.num_bins) < bits[:, None]] = 1
-        return hash.flatten()
+        return (img[1:, :] > img[:-1, :]).astype(np.uint8).flatten()
