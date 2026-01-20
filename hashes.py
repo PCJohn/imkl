@@ -44,24 +44,29 @@ class ImageHash(ABC):
         # Must extract a perceptual hash (a binary feature vector) of an image
         pass
 
-    def sim(self, x1: NDArray[np.uint8], x2: NDArray[np.uint8]) -> float:
-        # Compute similarity between individual bit vectors (= 1 - Hamming distance) in [0, 1]
-        return (x1 == x2).sum() / x1.size
+    def hamming_batch(
+        self, x: NDArray[np.uint8], gamma: float = 0.0, relative: bool = False
+    ) -> NDArray[np.float32]:
+        """
+        Compute a Hamming distance matrix given binary vectors.
 
-    def sim_batch(self, x: NDArray[np.uint8], out=None) -> NDArray[np.float32]:
-        # Compute similarity matrix given a stack of bit vectors
+        Args:
+            x: A (N, D) binary numpy array set of binary vectors.
+            gamma: Coefficient for exponentiated hamming distance. Default: 0 (no exponentiation).
+            relative: If true, returns relative Hamming distance = hamming / D. Default: false.
+        Returns:
+            A float32 (N, N) numpy array with pairwise Hamming distance between input vectors.
+        """
         if x.ndim == 1:
             x = x[np.newaxis, :]
         N, D = x.shape  # num samples, hash dimension
-        if out is None:
-            out = np.empty((N, N), dtype=np.float32)
-        np.sum(
-            x[:, np.newaxis, :] == x[np.newaxis, :, :],
-            axis=2,
-            dtype=np.float32,
-            out=out,
+        out = np.sum(
+            x[:, np.newaxis, :] != x[np.newaxis, :, :], axis=2, dtype=np.float32
         )
-        np.divide(out, D, out=out)
+        if relative:
+            out /= D
+        if gamma:
+            out = np.exp(-gamma * out)
         return out
 
 
