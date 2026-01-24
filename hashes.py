@@ -45,7 +45,11 @@ class ImageHash(ABC):
         pass
 
     def hamming_batch(
-        self, x: NDArray[np.uint8], gamma: float = 0.0, relative: bool = False
+        self,
+        x: NDArray[np.uint8],
+        invert: bool = False,
+        gamma: float = 0.0,
+        relative: bool = False,
     ) -> NDArray[np.float32]:
         """
         Compute a Hamming distance matrix given binary vectors.
@@ -63,6 +67,8 @@ class ImageHash(ABC):
         out = np.sum(
             x[:, np.newaxis, :] != x[np.newaxis, :, :], axis=2, dtype=np.float32
         )
+        if invert:
+            out = D - out
         if relative:
             out /= D
         if gamma:
@@ -161,7 +167,7 @@ class GaborHash(ImageHash):
 class SqueezeNetHash(ImageHash):
     def __init__(
         self,
-        img_size: tuple[int, int],
+        img_size: int,
         model_path: str,
         thresh: str,
         edges: bool = False,
@@ -289,3 +295,26 @@ class VDiffHash(ImageHash):
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
         return (img[1:, :] > img[:-1, :]).astype(np.uint8).flatten()
+
+
+class HOGHash(ImageHash):
+    def __init__(
+        self,
+        img_size: int,
+        thresh: str,
+        edges: bool = False,
+        log_polar: bool = False,
+        num_bins: int = 4,
+    ):
+        super().__init__((img_size, img_size), "gray", thresh, edges, log_polar)
+        self.hog = cv2.HOGDescriptor(
+            _winSize=(64, 64),
+            _blockSize=(32, 32),  # num blocks = (_winSize / _blockSize) ** 2
+            _blockStride=(32, 32),  # tiled blocks
+            _cellSize=(16, 16),  # num cells = (_blockSize / _cellSize) ** 2
+            _nbins=num_bins,
+        )  # Descriptor size = num blocks * num cells * num bins
+
+    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
+        img = self.preproc(img).astype(np.uint8)
+        return self.bitvec(self.hog.compute(img))
