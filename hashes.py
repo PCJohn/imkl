@@ -39,6 +39,12 @@ class ImageHash(ABC):
         T = self.thresh_func(x)
         return (x > T).astype(np.uint8).flatten()
 
+    def count_to_bitvec(self, count):
+        # Convert integer counts into bit vectors = tally of log2(count)
+        feat = np.zeros((16,), dtype=np.uint8)
+        feat[: int(np.log2(count))] = 1
+        return feat
+
     @abstractmethod
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         # Must extract a perceptual hash (a binary feature vector) of an image
@@ -330,10 +336,7 @@ class CornerCountHash(ImageHash):
         dst = cv2.cornerHarris(img, blockSize=2, ksize=3, k=0.04)
         dst = cv2.dilate(dst, None)
         corner_loc = dst > 0.01 * dst.max()
-        feat = np.zeros((16,), dtype=np.uint8)
-        idx = int(np.log2(corner_loc.sum() + 1))
-        feat[:idx] = 1
-        return feat
+        return self.count_to_bitvec(corner_loc.sum() + 1)
 
 
 class LineCountHash(ImageHash):
@@ -344,8 +347,5 @@ class LineCountHash(ImageHash):
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
         lines, width, prec, nfa = self.lsd.detect(img)
-        feat = np.zeros((16,), dtype=np.uint8)
-        if lines is not None:
-            idx = int(np.log2(lines.shape[0] + 1))
-            feat[:idx] = 1
-        return feat
+        num_lines = 0 if lines is None else lines.shape[0] + 1
+        return self.count_to_bitvec(num_lines)
