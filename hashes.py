@@ -329,12 +329,10 @@ class HOGHash(ImageHash):
 class CornerCountHash(ImageHash):
     def __init__(self, img_size: int, edges: bool = False, log_polar: bool = False):
         super().__init__((img_size, img_size), "gray", edges, log_polar)
-        self.orb = cv2.ORB_create()
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
-        dst = cv2.cornerHarris(img, blockSize=2, ksize=3, k=0.04)
-        dst = cv2.dilate(dst, None)
+        dst = cv2.dilate(cv2.cornerHarris(img, blockSize=2, ksize=3, k=0.04), None)
         corner_loc = dst > 0.01 * dst.max()
         return self.count_to_bitvec(corner_loc.sum() + 1)
 
@@ -346,6 +344,6 @@ class LineCountHash(ImageHash):
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
-        lines, width, prec, nfa = self.lsd.detect(img)
-        num_lines = 0 if lines is None else lines.shape[0] + 1
-        return self.count_to_bitvec(num_lines)
+        lines = self.lsd.detect(img)[0]
+        num_lines = 1 if lines is None else lines.shape[0]
+        return self.count_to_bitvec(num_lines + 1)
