@@ -318,3 +318,34 @@ class HOGHash(ImageHash):
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
         return self.bitvec(self.hog.compute(img))
+
+
+class CornerCountHash(ImageHash):
+    def __init__(self, img_size: int, edges: bool = False, log_polar: bool = False):
+        super().__init__((img_size, img_size), "gray", edges, log_polar)
+        self.orb = cv2.ORB_create()
+
+    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
+        img = self.preproc(img).astype(np.uint8)
+        dst = cv2.cornerHarris(img, blockSize=2, ksize=3, k=0.04)
+        dst = cv2.dilate(dst, None)
+        corner_loc = dst > 0.01 * dst.max()
+        feat = np.zeros((16,), dtype=np.uint8)
+        idx = int(np.log2(corner_loc.sum() + 1))
+        feat[:idx] = 1
+        return feat
+
+
+class LineCountHash(ImageHash):
+    def __init__(self, img_size: int, edges: bool = False, log_polar: bool = False):
+        super().__init__((img_size, img_size), "gray", edges, log_polar)
+        self.lsd = cv2.createLineSegmentDetector()
+
+    def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
+        img = self.preproc(img).astype(np.uint8)
+        lines, width, prec, nfa = self.lsd.detect(img)
+        feat = np.zeros((16,), dtype=np.uint8)
+        if lines is not None:
+            idx = int(np.log2(lines.shape[0] + 1))
+            feat[:idx] = 1
+        return feat
