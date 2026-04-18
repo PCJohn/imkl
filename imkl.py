@@ -4,7 +4,7 @@ from numpy.typing import NDArray
 
 from itertools import product
 from hashes import *
-from utils import multi_hist, multi_otsu, softmax, MemoizedImage
+from utils import MemoizedImage
 
 
 CV2Img = NDArray[np.uint8]
@@ -22,7 +22,7 @@ class MKLClassifier:
     def __init__(self, config_file):
         with open(config_file, "r") as f:
             self.cfg = yaml.safe_load(f)
-        # Create hash functions with all combinations of shared preprocs
+        # Create hash functions with all combinations of shared preproc ops
         preproc_ops = self.cfg["shared_preproc"].keys()
         preproc_val = self.cfg["shared_preproc"].values()
         self.hash_funcs = []
@@ -34,8 +34,12 @@ class MKLClassifier:
         self.num_hash = len(self.hash_funcs)
         # Sort hash functions by descending order of input image sizes
         self.hash_funcs.sort(key=lambda hf: hf.img_area, reverse=True)
-        # Weight vector tracking kernel separability per hash function
+        # Weight vector tracking kernel separability per hash (fit() updates this variable)
         self.weights = np.ones((self.num_hash,), dtype=np.float32) / self.num_hash
+        # Params for algorithm used to estimate weights per kernel ("cka" or "rayleigh")
+        self.fit_policy = self.cfg["fit_params"].get("policy", "cka")
+        self.fit_topk = self.cfg["fit_params"].get("topk", 0)
+        self.fit_normalize = self.cfg["fit_params"].get("normalize", True)
 
     def reset(self):
         self.weights = np.ones((self.num_hash,), dtype=np.float32) / self.num_hash
@@ -64,7 +68,7 @@ class MKLClassifier:
         Returns:
             An (N, N) matrix that is the weighted sum of the K input matrices.
         """
-        return np.einsum("ijk,i->jk", kernels, self.weights).astype(np.float32)
+        return np.einsum("kij,k->ij", kernels, self.weights).astype(np.float32)
 
     def kernels(
         self,
@@ -84,17 +88,20 @@ class MKLClassifier:
         if not hashes:
             return np.empty((self.num_hash, 0, 0), dtype=np.float32)
         N = hashes[0].shape[0]
-        K = np.zeros([self.num_hash, N, N], dtype=np.float32)
-        [
-            hash_func.sim_batch(hashes[p], out=K[p])
-            for p, hash_func in enumerate(self.hash_funcs)
-        ]
+        K = np.array(
+            [
+                hash_func.hamming_batch(
+                    hashes[p], invert=True, gamma=0.0, relative=True
+                )
+                for p, hash_func in enumerate(self.hash_funcs)
+            ],
+            dtype=np.float32,
+        )
         if center:
-            # Apply cetering to each kernel
-            I = np.eye(N)
-            I_N = I - np.ones((N, N)) / N
+            # Apply centering to each kernel
+            H = np.eye(N) - np.ones((N, N)) / N
             for p in range(K.shape[0]):
-                K[p] = I_N @ K[p] @ I_N
+                K[p] = H @ K[p] @ H
         if combine:
             # Return a linear combination of kernels using weights learned in fit()
             return self.combine_kernels(K)
@@ -111,7 +118,6 @@ class MKLClassifier:
         if self.weights.size == 1:
             # Skip computing weights if we have just one kernel
             return
-        # Add augmentations
         imgs = imgs_cat1 + imgs_cat2
         # Make label vector
         Y = np.full(len(imgs), self._CAT1_LABEL)
@@ -120,42 +126,33 @@ class MKLClassifier:
         hashes = self.hash(imgs)
         K = self.kernels(hashes, combine=False, center=True)
         # Centered kernel alignment
-        label = np.outer(Y, Y)
-        cross = np.einsum("knn,nn->k", K, label)
-        norm_K = np.sqrt(np.einsum("knn,knn->k", K, K))
-        norm_L = np.linalg.norm(label, ord="fro")
-        self.weights = cross / (norm_K * norm_L)
+        L = np.outer(Y, Y)
 
-    def fit_models(self, hashes, labels):
-        """
-        Fit classification models.
+        # TODO: WIP to mask out label matrix
+        # N = L.shape[0]
+        # N1 = len(imgs_cat1)
+        # mask = np.ones_like(L)
+        # mask[N1:, N1:] = 0
+        # L *= mask
 
-        Args:
-            hashes: A (N, D) binary numpy array with perceptual hashes.
-            labels: A numpy array with target binary classification labels.
-        """
-        from sklearn.naive_bayes import BernoulliNB
+        # Compute weights indicating how well each kernel "aligns" with the true labels
+        if self.fit_policy == "cka":
+            cross = np.einsum("kij,ij->k", K, L)
+            norm_K = np.einsum("kij,kij->k", K, K)
+            norm_L = np.einsum("ij,ij->", L, L)
+            self.weights = cross / np.sqrt(norm_K * norm_L)
+        elif self.fit_policy == "rayleigh":
+            Kf = K.reshape(K.shape[0], -1)  # (K, N*N)
+            Lf = L.reshape(-1)  # (N*N,)
+            M = Kf @ Kf.T  # (K, K)
+            a = Kf @ Lf  # (K,)
+            eps = 1e-8
+            w = np.linalg.solve(M + eps * np.eye(M.shape[0]), a)
+            w = np.maximum(w, 0)
+            self.weights = w
 
-        self.models = [BernoulliNB() for _ in range(self.num_hash)]
-        # Train classifiers with different types of hashes
-        for p in range(self.num_hash):
-            self.models[p].fit(np.array(hashes[p]), labels)
-
-    def predict(self, imgs: list[CV2Img]) -> NDArray[np.float32]:
-        """
-        Predict classification labels.
-        (1) Predicts labels with classifiers trained on top of each hash functions.
-        (2) Uses weights learned in fit() as weights to compute linear combination of predictions.
-
-        Args:
-            imgs: List of N images to classify.
-        Returns:
-            An (N,) shaped numpy array with predicted class labels.
-        """
-        if not imgs:
-            return np.empty((0,), dtype=np.float32)
-        hashes = self.hash(imgs)
-        pY = [
-            self.models[p].predict_proba(hashes[p])[:, 1] for p in range(self.num_hash)
-        ]
-        return np.einsum("ij,i->j", pY, self.weights).astype(np.float32)
+        if self.fit_topk:
+            thresh = np.partition(self.weights, -self.fit_topk)[-self.fit_topk]
+            self.weights[self.weights < thresh] = 0
+        if self.fit_normalize:
+            self.weights /= self.weights.sum()

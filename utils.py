@@ -12,7 +12,7 @@ def softmax(x: NDArray[np.float32], temp: float = 1.0, axis: int = -1):
 
     Args:
         x: Input array.
-        temp: Temprature (default: 1.0).
+        temp: Temperature (default: 1.0).
         axis: Dimension along which softmax is computed (default: -1).
     """
     z = x - np.max(x, axis=axis, keepdims=True)
