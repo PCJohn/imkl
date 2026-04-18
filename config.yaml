@@ -1,153 +1,76 @@
+# Parameters for policy to learn weights per hash based on separability
+fit_params:
+  topk: 5
+  policy: cka # cka or rayleigh
+  normalize: true # ensure weights of kernels sum to 1
+# Shared preproc ops. will create one kernel for every combination of these
+shared_preproc:
+  edges: [false, true]
+  log_polar: [false, true]
+# Feature extractors
 kernels:
-  - class: ColorHistHash
+  - class: CornerCountHash
     params:
-      img_size: 16
-      channels: [0, 1]
-      bins: [8, 8]
-      ranges: [0, 180, 0, 256]
-      col: hsv
-      thresh: mean
-
-  - class: ColorHistHash
+      img_size: 128
+  - class: ColorHash
     params:
-      img_size: 16
-      channels: [0, 1, 2]
-      bins: [8, 2, 2]
-      ranges: [0, 180, 0, 256, 0, 256]
-      col: hsv
-      thresh: mean
-
-  - class: HuMomentHash
-    params:
-      img_size: 32
-      thresh: mean
-
-  - class: SqueezeNetHash
-    params:
-      img_size: 32
-      model_path: models/squeezenet1_1_1-layer_input-32.onnx
-      thresh: mean
-
-  - class: GaborHash
-    params:
-      img_size: 32
-      model_path: models/gabor_filter-7.onnx
-      thresh: mean
-
+      img_size: 64
   - class: WaveletHash
     params:
       hash_size: 8
       scale: 4
       thresh: median
       blur: 3
-
-  - class: WaveletHash
-    params:
-      hash_size: 8
-      scale: 4
-      thresh: median
-      blur: 3
-      edges: true
-
-  - class: WaveletHash
-    params:
-      hash_size: 16
-      scale: 4
-      thresh: median
-      blur: 3
-
-  - class: WaveletHash
-    params:
-      hash_size: 16
-      scale: 4
-      thresh: median
-      blur: 3
-      edges: true
-
   - class: PerceptualHash
     params:
       hash_size: 8
       highfreq_factor: 4
-      thresh: median
-
+      thresh: median # true phash
   - class: PerceptualHash
     params:
       hash_size: 8
       highfreq_factor: 4
-      thresh: median
-      edges: true
-
-  - class: PerceptualHash
-    params:
-      hash_size: 16
-      highfreq_factor: 4
-      thresh: median
-
-  - class: PerceptualHash
-    params:
-      hash_size: 16
-      highfreq_factor: 4
-      thresh: median
-      edges: true
-
+      thresh: mean # phash simple
   - class: PixelHash
     params:
       hash_size: 8
-      thresh: mean # Average Hash or aHash
-
+      thresh: mean # ahash
   - class: PixelHash
     params:
       hash_size: 8
-      thresh: mean # Average Hash or aHash
-      edges: true # only for edges
-
-  - class: PixelHash
-    params:
-      hash_size: 16
-      thresh: mean # Average Hash or aHash
-
-  - class: PixelHash
-    params:
-      hash_size: 16
-      thresh: mean # Average Hash or aHash
-      edges: true # only for edges
-
-  - class: PixelHash
-    params:
-      hash_size: 8
-      thresh: median # Median Hash or mHash
-
-  - class: PixelHash
-    params:
-      hash_size: 8
-      thresh: median # Median Hash or mHash
-      edges: true
-
-  - class: PixelHash
-    params:
-      hash_size: 16
-      thresh: median # Median Hash or mHash
-
-  - class: PixelHash
-    params:
-      hash_size: 16
-      thresh: median # Median Hash or mHash
-      edges: true # only for edges
-
+      thresh: median # mhash
   - class: HDiffHash
     params:
       hash_size: 8
-
-  - class: HDiffHash
-    params:
-      hash_size: 16
-      edges: true
-
   - class: VDiffHash
     params:
       hash_size: 8
 
-  - class: VDiffHash
-    params:
-      hash_size: 16
-      edges: true
+  #- class: GaborHash
+  #  params:
+  #    img_size: 32
+  #    model_path: models/gabor_filter-7_pool-2_energy-abs.onnx
+  #    thresh: mean
+  #- class: GaborHash
+  #  params:
+  #    img_size: 32
+  #    model_path: models/gabor_filter-7_pool-2_energy-square.onnx
+  #    thresh: mean
+  #- class: SqueezeNetHash
+  #  params:
+  #    img_size: 32
+  #    model_path: models/squeezenet1_1_1-layer_input-32.onnx
+  #    thresh: mean
+    #- class: LineCountHash
+  #  params:
+  #    img_size: 32
+  #- class: HOGHash
+  #  params:
+  #    img_size: 64
+  #    num_bins: 4
+  #    thresh: mean
+  #- class: HOGHash
+  #  params:
+  #    img_size: 64
+  #    num_bins: 2
+  #    thresh: mean
