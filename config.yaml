@@ -12,6 +12,7 @@ kernels:
   - class: CornerCountHash
     params:
       img_size: 128
+      hash_dim: 16
   - class: ColorHash
     params:
       img_size: 64
@@ -49,21 +50,19 @@ kernels:
   #- class: GaborHash
   #  params:
   #    img_size: 32
-  #    model_path: models/gabor_filter-7_pool-2_energy-abs.onnx
-  #    thresh: mean
-  #- class: GaborHash
-  #  params:
-  #    img_size: 32
+  #    hash_dim: 128
   #    model_path: models/gabor_filter-7_pool-2_energy-square.onnx
   #    thresh: mean
   #- class: SqueezeNetHash
   #  params:
   #    img_size: 32
+  #    hash_dim: 64
   #    model_path: models/squeezenet1_1_1-layer_input-32.onnx
   #    thresh: mean
-    #- class: LineCountHash
+  #- class: LineCountHash
   #  params:
   #    img_size: 32
+  #    hash_dim: 16
   #- class: HOGHash
   #  params:
   #    img_size: 64

@@ -16,10 +16,12 @@ class ImageHash(ABC):
         "p95": lambda x: np.percentile(x, 95),
         "p99": lambda x: np.percentile(x, 99),
     }
+    _COUNT_LUT = np.array([bin(i).count("1") for i in range(512)], dtype=np.uint8)
 
     def __init__(
         self,
         img_size: tuple[int, int],
+        hash_dim: int,
         col: str,
         thresh: str = "mean",
         edges: bool = False,
@@ -27,6 +29,7 @@ class ImageHash(ABC):
     ):
         self.preproc_transform = ImagePreprocTransforms(img_size, col, edges, log_polar)
         self.img_area = img_size[0] * img_size[1]
+        self.hash_dim = hash_dim
         self.thresh = thresh
         self.thresh_func = self._THRESH_FUNCS.get(thresh)
 
@@ -37,13 +40,14 @@ class ImageHash(ABC):
     def bitvec(self, x: NDArray[np.float32]) -> NDArray[np.uint8]:
         # Threshold features and binarize to bit vectors
         T = self.thresh_func(x)
-        return (x > T).astype(np.uint8).flatten()
+        bits = (x > T).astype(np.uint8).flatten()
+        return np.packbits(bits)
 
     def count_to_bitvec(self, count):
         # Convert integer counts into bit vectors = tally of log2(count)
-        feat = np.zeros((16,), dtype=np.uint8)
+        feat = np.zeros((self.hash_dim,), dtype=np.uint8)
         feat[: int(np.log2(count))] = 1
-        return feat
+        return np.packbits(feat)
 
     @abstractmethod
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
@@ -58,7 +62,7 @@ class ImageHash(ABC):
         relative: bool = False,
     ) -> NDArray[np.float32]:
         """
-        Compute a Hamming distance matrix given binary vectors.
+        Compute a matrix with pairwise Hamming distances given binary vectors.
 
         Args:
             x: A (N, D) binary numpy array set of binary vectors.
@@ -67,16 +71,12 @@ class ImageHash(ABC):
         Returns:
             A float32 (N, N) numpy array with pairwise Hamming distance between input vectors.
         """
-        if x.ndim == 1:
-            x = x[np.newaxis, :]
-        N, D = x.shape  # num samples, hash dimension
-        out = np.sum(
-            x[:, np.newaxis, :] != x[np.newaxis, :, :], axis=2, dtype=np.float32
-        )
+        xor = x[:, np.newaxis, :] ^ x[np.newaxis, :, :]
+        out = self._COUNT_LUT[xor].sum(axis=2).astype(np.float32)
         if invert:
-            out = D - out
+            out = self.hash_dim - out
         if relative:
-            out /= D
+            out /= self.hash_dim
         if gamma:
             out = np.exp(-gamma * out)
         return out
@@ -88,8 +88,13 @@ class ColorHash(ImageHash):
         img_size: int,
         edges: bool = False,
         log_polar: bool = False,
+        binbits: int = 3,
     ):
-        super().__init__((img_size, img_size), "bgr", "mean", edges, log_polar)
+        super().__init__(
+            (img_size, img_size), 14 * binbits, "bgr", "mean", edges, log_polar
+        )
+        self.max_val = 2**binbits
+        self.shifts = np.arange(binbits - 1, -1, -1, dtype=np.uint8)
 
     def feat(self, img: MemoizedImage):
         """
@@ -102,14 +107,6 @@ class ColorHash(ImageHash):
             A binary numpy array.
         """
         img = self.preproc(img).astype(np.uint8)
-        """
-        if self.preproc_transform.edges:
-            edges = cv2.Canny(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 100, 200)
-            colored_edges = np.zeros_like(img)
-            colored_edges[edges == 255] = img[edges == 255]
-            img = colored_edges
-        """
-        binbits = 3
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY).flatten()
         hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
         h_raw, s, v = cv2.split(hsv)
@@ -139,12 +136,10 @@ class ColorHash(ImageHash):
         raw_values = np.concatenate(
             ([frac_black, frac_gray], h_faint_counts / c, h_bright_counts / c)
         )
-        max_val = 2**binbits
-        values = np.clip(np.floor(raw_values * max_val), 0, max_val - 1).astype(
-            np.uint8
-        )
-        shifts = np.arange(binbits - 1, -1, -1, dtype=np.uint8)
-        bitvec = (values[:, np.newaxis] >> shifts) & 1
+        values = np.clip(
+            np.floor(raw_values * self.max_val), 0, self.max_val - 1
+        ).astype(np.uint8)
+        bitvec = (values[:, np.newaxis] >> self.shifts) & 1
         return bitvec.flatten()
 
 
@@ -152,12 +147,15 @@ class GaborHash(ImageHash):
     def __init__(
         self,
         img_size: int,
+        hash_dim: int,
         model_path: str,
         thresh: str,
         edges: bool = False,
         log_polar: bool = False,
     ):
-        super().__init__((img_size, img_size), "gray", thresh, edges, log_polar)
+        super().__init__(
+            (img_size, img_size), hash_dim, "gray", thresh, edges, log_polar
+        )
         self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.input_name = self.sess.get_inputs()[0].name
 
@@ -174,12 +172,15 @@ class SqueezeNetHash(ImageHash):
     def __init__(
         self,
         img_size: int,
+        hash_dim: int,
         model_path: str,
         thresh: str,
         edges: bool = False,
         log_polar: bool = False,
     ):
-        super().__init__((img_size, img_size), "col", thresh, edges, log_polar)
+        super().__init__(
+            (img_size, img_size), hash_dim, "col", thresh, edges, log_polar
+        )
         self.sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
         self.input_name = self.sess.get_inputs()[0].name
 
@@ -201,6 +202,7 @@ class PerceptualHash(ImageHash):
     ):
         super().__init__(
             (hash_size * highfreq_factor, hash_size * highfreq_factor),
+            hash_size**2,
             "gray",
             thresh,
             edges,
@@ -218,7 +220,9 @@ class PixelHash(ImageHash):
     def __init__(
         self, hash_size: int, thresh: str, edges: bool = False, log_polar: bool = False
     ):
-        super().__init__((hash_size, hash_size), "gray", thresh, edges, log_polar)
+        super().__init__(
+            (hash_size, hash_size), hash_size**2, "gray", thresh, edges, log_polar
+        )
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -236,9 +240,16 @@ class WaveletHash(ImageHash):
         log_polar: bool = False,
     ):
         super().__init__(
-            (hash_size * scale, hash_size * scale), "gray", thresh, edges, log_polar
+            (hash_size * scale, hash_size * scale),
+            None,
+            "gray",
+            thresh,
+            edges,
+            log_polar,
         )
         self.levels = int(np.log2(scale))
+        # FIXME: inferring hash_dim this way might not work for img with odd sized dims
+        self.hash_dim = (hash_size * scale // 2**self.levels) ** 2
         self.blur = blur
 
     def _ensure_even_dims(self, img):
@@ -287,7 +298,10 @@ class WaveletHash(ImageHash):
 
 class HDiffHash(ImageHash):
     def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
-        super().__init__((hash_size, hash_size + 1), "gray", edges, log_polar)
+        super().__init__(
+            (hash_size, hash_size + 1), hash_size**2, "gray", edges, log_polar
+        )
+        # self.hash_dim = hash_size**2
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -296,7 +310,9 @@ class HDiffHash(ImageHash):
 
 class VDiffHash(ImageHash):
     def __init__(self, hash_size: int, edges: bool = False, log_polar: bool = False):
-        super().__init__((hash_size + 1, hash_size), "gray", edges, log_polar)
+        super().__init__(
+            (hash_size + 1, hash_size), hash_size**2, "gray", edges, log_polar
+        )
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
@@ -312,14 +328,26 @@ class HOGHash(ImageHash):
         log_polar: bool = False,
         num_bins: int = 4,
     ):
-        super().__init__((img_size, img_size), "gray", thresh, edges, log_polar)
+        super().__init__((img_size, img_size), None, "gray", thresh, edges, log_polar)
+        win = (64, 64)
+        block = (32, 32)
+        stride = (32, 32)
+        cell = (16, 16)
         self.hog = cv2.HOGDescriptor(
-            _winSize=(64, 64),
-            _blockSize=(32, 32),  # num blocks = (_winSize / _blockSize) ** 2
-            _blockStride=(32, 32),  # tiled blocks
-            _cellSize=(16, 16),  # num cells = (_blockSize / _cellSize) ** 2
+            _winSize=win,
+            _blockSize=block,  # num blocks = (_winSize / _blockSize) ** 2
+            _blockStride=stride,  # tiled blocks
+            _cellSize=cell,  # num cells = (_blockSize / _cellSize) ** 2
             _nbins=num_bins,
-        )  # Descriptor size = num blocks * num cells * num bins
+        )
+        # Hash dim = Descriptor size = num blocks * num cells * num bins
+        self.hash_dim = (
+            ((win[0] - block[0]) // stride[0] + 1)
+            * ((win[1] - block[1]) // stride[1] + 1)
+            * (block[0] // cell[0])
+            * (block[1] // cell[1])
+            * num_bins
+        )
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
@@ -327,8 +355,11 @@ class HOGHash(ImageHash):
 
 
 class CornerCountHash(ImageHash):
-    def __init__(self, img_size: int, edges: bool = False, log_polar: bool = False):
-        super().__init__((img_size, img_size), "gray", edges, log_polar)
+    def __init__(
+        self, img_size: int, hash_dim: int, edges: bool = False, log_polar: bool = False
+    ):
+        super().__init__((img_size, img_size), hash_dim, "gray", edges, log_polar)
+        # self.hash_dim = hash_dim
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
@@ -338,9 +369,12 @@ class CornerCountHash(ImageHash):
 
 
 class LineCountHash(ImageHash):
-    def __init__(self, img_size: int, edges: bool = False, log_polar: bool = False):
-        super().__init__((img_size, img_size), "gray", edges, log_polar)
+    def __init__(
+        self, img_size: int, hash_dim: int, edges: bool = False, log_polar: bool = False
+    ):
+        super().__init__((img_size, img_size), hash_dim, "gray", edges, log_polar)
         self.lsd = cv2.createLineSegmentDetector()
+        # self.hash_dim = hash_dim
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
