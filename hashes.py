@@ -16,7 +16,10 @@ class ImageHash(ABC):
         "p95": lambda x: np.percentile(x, 95),
         "p99": lambda x: np.percentile(x, 99),
     }
-    _COUNT_LUT = np.array([bin(i).count("1") for i in range(512)], dtype=np.uint8)
+    _MAX_HASH_DIM = 512
+    _COUNT_LUT = np.array(
+        [bin(i).count("1") for i in range(_MAX_HASH_DIM)], dtype=np.uint8
+    )
 
     def __init__(
         self,
