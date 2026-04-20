@@ -40,13 +40,14 @@ class ImageHash(ABC):
         # Resize, set color space and cast to fp32
         return img.preproc(self.preproc_transform).astype(np.float32)
 
-    def bitvec(self, x: NDArray[np.float32]) -> NDArray[np.uint8]:
+    def bitvec(self, x: NDArray[np.float32], thresh: bool = True) -> NDArray[np.uint8]:
+        if not thresh:
+            return np.packbits(x)
         # Threshold features and binarize to bit vectors
-        T = self.thresh_func(x)
-        bits = (x > T).astype(np.uint8).flatten()
+        bits = x > self.thresh_func(x)
         return np.packbits(bits)
 
-    def count_to_bitvec(self, count):
+    def count_to_bitvec(self, count: int) -> NDArray[np.uint8]:
         # Convert integer counts into bit vectors = tally of log2(count)
         feat = np.zeros((self.hash_dim,), dtype=np.uint8)
         feat[: int(np.log2(count))] = 1
@@ -142,8 +143,8 @@ class ColorHash(ImageHash):
         values = np.clip(
             np.floor(raw_values * self.max_val), 0, self.max_val - 1
         ).astype(np.uint8)
-        bitvec = (values[:, np.newaxis] >> self.shifts) & 1
-        return bitvec.flatten()
+        bits = (values[:, np.newaxis] >> self.shifts) & 1
+        return self.bitvec(bits, thresh=False)
 
 
 class GaborHash(ImageHash):
@@ -304,11 +305,12 @@ class HDiffHash(ImageHash):
         super().__init__(
             (hash_size, hash_size + 1), hash_size**2, "gray", edges, log_polar
         )
-        # self.hash_dim = hash_size**2
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
-        return (img[:, 1:] > img[:, :-1]).astype(np.uint8).flatten()
+        return self.bitvec(
+            (img[:, 1:] > img[:, :-1]).astype(np.uint8).flatten(), thresh=False
+        )
 
 
 class VDiffHash(ImageHash):
@@ -319,7 +321,9 @@ class VDiffHash(ImageHash):
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img)
-        return (img[1:, :] > img[:-1, :]).astype(np.uint8).flatten()
+        return self.bitvec(
+            (img[1:, :] > img[:-1, :]).astype(np.uint8).flatten(), thresh=False
+        )
 
 
 class HOGHash(ImageHash):
@@ -362,7 +366,6 @@ class CornerCountHash(ImageHash):
         self, img_size: int, hash_dim: int, edges: bool = False, log_polar: bool = False
     ):
         super().__init__((img_size, img_size), hash_dim, "gray", edges, log_polar)
-        # self.hash_dim = hash_dim
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
@@ -377,7 +380,6 @@ class LineCountHash(ImageHash):
     ):
         super().__init__((img_size, img_size), hash_dim, "gray", edges, log_polar)
         self.lsd = cv2.createLineSegmentDetector()
-        # self.hash_dim = hash_dim
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
