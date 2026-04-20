@@ -1,6 +1,6 @@
 # imkl
 
-CPU-based code to compute multiple perceptual hashes per image. Also computes pairwise Hamming distance matrices.
+Fast CPU-based code to compute (1) perceptual image hashes (2) pairwise Hamming distance matrices.
 
 ### Usage
 
