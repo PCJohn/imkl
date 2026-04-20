@@ -366,12 +366,14 @@ class CornerCountHash(ImageHash):
         self, img_size: int, hash_dim: int, edges: bool = False, log_polar: bool = False
     ):
         super().__init__((img_size, img_size), hash_dim, "gray", edges, log_polar)
+        self.fast_feat_det = cv2.FastFeatureDetector_create(
+            threshold=10, nonmaxSuppression=True
+        )
 
     def feat(self, img: MemoizedImage) -> NDArray[np.uint8]:
         img = self.preproc(img).astype(np.uint8)
-        dst = cv2.dilate(cv2.cornerHarris(img, blockSize=2, ksize=3, k=0.04), None)
-        corner_loc = dst > 0.01 * dst.max()
-        return self.count_to_bitvec(corner_loc.sum() + 1)
+        corners = self.fast_feat_det.detect(img)
+        return self.count_to_bitvec(len(corners) + 1)
 
 
 class LineCountHash(ImageHash):
