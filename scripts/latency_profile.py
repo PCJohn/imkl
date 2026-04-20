@@ -22,12 +22,12 @@ from hashes import (
 )
 from utils import MemoizedImage
 
-# config
+# Config
 IMG_SIZES = [128, 512, 1024]
 IMG_COUNTS = [1, 5, 10, 20]
 REF_SIZE = 512
-N_WARMUP = 3
-N_RUNS = 15
+N_WARMUP = 10
+N_RUNS = 20
 
 
 def make_hashes():
@@ -69,17 +69,15 @@ def run_hashes(hashes_dict, imgs):
     }
 
 
-# per-hash latency
+# Per-hash latency
 hash_lat = defaultdict(dict)
 hash_names = list(make_hashes().keys())
 for size in IMG_SIZES:
     img = rand_img(size, size)
     hashes = make_hashes()
     for name, hf in hashes.items():
-        memo = MemoizedImage(img)
-        hash_lat[name][size] = bench(lambda hf=hf, memo=memo: hf.feat(memo))
-
-# hash() latency vs num_hashes
+        hash_lat[name][size] = bench(lambda hf=hf, img=img: hf.feat(MemoizedImage(img)))
+# Latency of hash() vs num_hashes
 all_hashes = make_hashes()
 all_hash_names = list(all_hashes.keys())
 num_hash_range = list(range(1, len(all_hash_names) + 1))
@@ -89,25 +87,21 @@ for n_img in IMG_COUNTS:
     for k in num_hash_range:
         subset = {n: all_hashes[n] for n in all_hash_names[:k]}
         lat2[n_img][k] = bench(lambda s=subset, i=imgs: run_hashes(s, i))
-
-# hash() latency vs image size
+# Latency of hash() vs image size
 all_hashes_fixed = make_hashes()
 n_hashes = len(all_hashes_fixed)
 lat3 = {n: {} for n in IMG_COUNTS}
-
 for n_img in IMG_COUNTS:
     for size in IMG_SIZES:
         imgs = [rand_img(size, size) for _ in range(n_img)]
         lat3[n_img][size] = bench(lambda h=all_hashes_fixed, i=imgs: run_hashes(h, i))
-
-# plotting
+# Plots
 PALETTE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 IMG_COLORS = {n: PALETTE[i] for i, n in enumerate(IMG_COUNTS)}
 MARKERS = ["o", "s", "^"]
 fig = plt.figure(figsize=(20, 14))
 fig.suptitle("MKL Hash Function Benchmark", fontsize=16, fontweight="bold", y=0.98)
-
-# plot 1 — per-hash latency
+# Plot 1: per-hash latency
 ax1 = fig.add_subplot(2, 2, 1)
 x = np.arange(len(hash_names))
 width = 0.25
@@ -132,7 +126,7 @@ ax1.set_xticklabels(hash_names, rotation=35, ha="right", fontsize=8)
 ax1.legend(title="Image size")
 ax1.grid(axis="y", alpha=0.3)
 ax1.set_yscale("log")
-# plot 2 — latency vs num_hashes
+# Plot 2: Latency vs num_hashes
 ax2 = fig.add_subplot(2, 2, 2)
 for n_img in IMG_COUNTS:
     meds = [lat2[n_img][k][0] for k in num_hash_range]
@@ -158,7 +152,7 @@ ax2.set_xticks(num_hash_range)
 ax2.set_xticklabels([str(k) for k in num_hash_range])
 ax2.legend(title="# images")
 ax2.grid(alpha=0.3)
-# plot 3 — latency vs num_images
+# Plot 3: Latency vs num_images
 ax3 = fig.add_subplot(2, 2, 3)
 for i, size in enumerate(IMG_SIZES):
     meds = [lat3[n][size][0] for n in IMG_COUNTS]
@@ -182,7 +176,7 @@ ax3.set_ylabel("Latency (ms)")
 ax3.set_xticks(IMG_COUNTS)
 ax3.legend(title="Image size")
 ax3.grid(alpha=0.3)
-# plot 4 — latency vs image size
+# Plot 4: Latency vs image size
 ax4 = fig.add_subplot(2, 2, 4)
 for n_img in IMG_COUNTS:
     meds = [lat3[n_img][size][0] for size in IMG_SIZES]
@@ -210,5 +204,5 @@ ax4.grid(alpha=0.3)
 plt.tight_layout()
 out_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
 os.makedirs(out_dir, exist_ok=True)
-
+# Save profiling plots to the assets/ folder
 plt.savefig(os.path.join(out_dir, "hash_benchmark.png"), dpi=150, bbox_inches="tight")
