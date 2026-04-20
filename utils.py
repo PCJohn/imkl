@@ -125,50 +125,68 @@ class MemoizedImage:
         self.orig_area = img.shape[0] * img.shape[1]
 
     def preproc(self, transforms: ImagePreprocTransforms) -> NDArray[np.uint8]:
-        #  Simply recall if already in cache
+        # Full cache hit
         if transforms in self.cache:
             return self.cache[transforms]
-        # Find the image in cache with the smallest size bigger than the target size
-        img_area = transforms.size[0] * transforms.size[1]
-        min_size_key = min(
-            filter(
-                lambda key: (
-                    key[0][0] * key[0][1] >= img_area
-                    or key[0][0] * key[0][1] == self.orig_area
-                )
-                and key[1] == self.col,
-                self.cache.keys(),
+        size, col, edges, log_polar = transforms
+        # Step 1: resize in original color space (bgr/gray)
+        base_key = ImagePreprocTransforms(size, self.col, False, False)
+        if base_key not in self.cache:
+            img_area = size[0] * size[1]
+            best_key = min(
+                (
+                    k
+                    for k in self.cache
+                    if (
+                        k.size[0] * k.size[1] >= img_area
+                        or k.size[0] * k.size[1] == self.orig_area
+                    )
+                    and k.col == self.col
+                    and not k.edges
+                    and not k.log_polar
+                ),
+                key=lambda k: k.size[0] * k.size[1],
             )
-        )
-        img = self.cache[min_size_key]
-        # Keep only edges
-        if transforms.edges:
-            img = cv2.Canny(img, 100, 200)
-            if self.col != "gray":
-                img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        # Apply log polar transform
-        if transforms.log_polar:
-            h, w = img.shape[:2]
-            center = (w // 2, h // 2)
-            img = cv2.warpPolar(
-                img,
-                dsize=(w, h),
-                center=center,
-                maxRadius=min(center),
-                flags=cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
-            )
-        # Resize
-        if transforms.size != img.shape[:2]:
-            img = cv2.resize(img, transforms.size[::-1], interpolation=cv2.INTER_AREA)
-        # Cache the resized version in the _default_ color space
-        self.cache[(transforms.size, self.col, self.edges, self.log_polar)] = img
-        # Convert to the target color space
-        if transforms.col == "gray":
-            if img.ndim == 3:
+            img = self.cache[best_key]
+            if size != img.shape[:2]:
+                img = cv2.resize(img, size[::-1], interpolation=cv2.INTER_AREA)
+            self.cache[base_key] = img
+        # Step 2: color convert (before edges/log_polar)
+        col_key = ImagePreprocTransforms(size, col, False, False)
+        if col_key not in self.cache:
+            img = self.cache[base_key]
+            if col == "gray" and img.ndim == 3:
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        elif transforms.col == "hsv":
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-        # Update cache
-        if transforms not in self.cache:
-            self.cache[transforms] = img
+            elif col == "hsv":
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            self.cache[col_key] = img
+        img = self.cache[col_key]
+        # Step 3: edges
+        if edges:
+            edge_key = ImagePreprocTransforms(size, col, True, False)
+            if edge_key not in self.cache:
+                e = cv2.Canny(
+                    img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY),
+                    100,
+                    200,
+                )
+                if col != "gray":
+                    e = cv2.cvtColor(e, cv2.COLOR_GRAY2BGR)
+                self.cache[edge_key] = e
+            img = self.cache[edge_key]
+        # Step 4: log_polar
+        if log_polar:
+            lp_key = ImagePreprocTransforms(size, col, edges, True)
+            if lp_key not in self.cache:
+                h, w = img.shape[:2]
+                center = (w // 2, h // 2)
+                self.cache[lp_key] = cv2.warpPolar(
+                    img,
+                    dsize=(w, h),
+                    center=center,
+                    maxRadius=min(center),
+                    flags=cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
+                )
+            img = self.cache[lp_key]
+        self.cache[transforms] = img
         return img

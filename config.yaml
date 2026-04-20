@@ -9,10 +9,6 @@ shared_preproc:
   log_polar: [false, true]
 # Feature extractors
 kernels:
-  - class: CornerCountHash
-    params:
-      img_size: 128
-      hash_dim: 16
   - class: ColorHash
     params:
       img_size: 64
@@ -46,6 +42,10 @@ kernels:
   - class: VDiffHash
     params:
       hash_size: 8
+  - class: CornerCountHash
+    params:
+      img_size: 128
+      hash_dim: 16
 
   #- class: GaborHash
   #  params:
