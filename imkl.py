@@ -10,7 +10,7 @@ from utils import MemoizedImage
 CV2Img = NDArray[np.uint8]
 
 
-class MKLClassifier:
+class IMKL:
     """
     Computes kernel matrices, multiple kernel learning style weights.
     """
