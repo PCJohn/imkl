@@ -25,7 +25,7 @@ m.fit(train_pos, train_neg)
 The hash functions and hyperparameters can be modified in the config file (example: `config.yaml`).
 
 ### Hash Functions
-1. ColorHash (based on [imagehash](https://github.com/JohannesBuchner/imagehash/blob/master/imagehash/__init__.py#L395)).
+1. ColorHash (based on [imagehash](https://github.com/JohannesBuchner/imagehash/blob/master/imagehash/__init__.py#L395))
 2. PerceptualHash (phash)
 3. PixelHash (same as aHash or mHash if you use threshold is "mean" or "median")
 4. HDiffHash
@@ -35,3 +35,5 @@ The hash functions and hyperparameters can be modified in the config file (examp
 8. SqueezeNetHash
 
 ### Latency
+<img width="2969" height="2063" alt="image" src="https://github.com/user-attachments/assets/f62c9d55-9849-44a5-b0c1-648338fbdf35" />
+
