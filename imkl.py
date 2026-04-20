@@ -127,14 +127,6 @@ class MKLClassifier:
         K = self.kernels(hashes, combine=False, center=True)
         # Centered kernel alignment
         L = np.outer(Y, Y)
-
-        # TODO: WIP to mask out label matrix
-        # N = L.shape[0]
-        # N1 = len(imgs_cat1)
-        # mask = np.ones_like(L)
-        # mask[N1:, N1:] = 0
-        # L *= mask
-
         # Compute weights indicating how well each kernel "aligns" with the true labels
         if self.fit_policy == "cka":
             cross = np.einsum("kij,ij->k", K, L)
@@ -150,7 +142,7 @@ class MKLClassifier:
             w = np.linalg.solve(M + eps * np.eye(M.shape[0]), a)
             w = np.maximum(w, 0)
             self.weights = w
-
+        # Post-process weights
         if self.fit_topk:
             thresh = np.partition(self.weights, -self.fit_topk)[-self.fit_topk]
             self.weights[self.weights < thresh] = 0
