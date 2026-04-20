@@ -35,5 +35,5 @@ The hash functions and hyperparameters can be modified in the config file (examp
 8. SqueezeNetHash
 
 ### Latency
-<img width="2969" height="2063" alt="image" src="https://github.com/user-attachments/assets/f62c9d55-9849-44a5-b0c1-648338fbdf35" />
+<img width="2969" height="2063" alt="image" src="./assets/hash_benchmark.png"/>
 
