@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "imkl"
+version = "0.1.0"
+description = "Perceptual Hashes and Kernel Matrices"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "onnxruntime",
+    "pyyaml",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
