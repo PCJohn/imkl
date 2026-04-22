@@ -4,6 +4,14 @@ Fast CPU-based code to compute (1) perceptual image hashes (2) pairwise Hamming 
 
 ### Usage
 
+Installation:
+
+```
+git clone https://github.com/PCJohn/imkl.git
+cd imkl
+python3 -m pip install .
+```
+
 Computing perceptual hashes (each is a binary vector):
 
 ```

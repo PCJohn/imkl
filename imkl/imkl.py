@@ -1,12 +1,21 @@
+import os
 import yaml
 import numpy as np
 from numpy.typing import NDArray
 from itertools import product
-from hashes import *
-from utils import MemoizedImage
+
+from .hashes import *
+from .utils import MemoizedImage
 
 
 CV2Img = NDArray[np.uint8]
+
+
+def load_config(source):
+    if os.path.exists(source):
+        with open(source, "r") as f:
+            return yaml.safe_load(f)
+    return yaml.safe_load(source)
 
 
 class IMKL:
@@ -18,9 +27,8 @@ class IMKL:
     _CAT1_LABEL = 1
     _CAT2_LABEL = -1
 
-    def __init__(self, config_file):
-        with open(config_file, "r") as f:
-            self.cfg = yaml.safe_load(f)
+    def __init__(self, config):
+        self.cfg = load_config(config)
         # Create hash functions with all combinations of shared preproc ops
         preproc_ops = self.cfg["shared_preproc"].keys()
         preproc_val = self.cfg["shared_preproc"].values()

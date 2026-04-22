@@ -2,48 +2,74 @@ import sys
 import os
 import time
 import numpy as np
+from collections import defaultdict
+import matplotlib.pyplot as plt
 import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from collections import defaultdict
+# matplotlib.use("Agg")
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from hashes import (
-    ColorHash,
-    PerceptualHash,
-    PixelHash,
-    WaveletHash,
-    HDiffHash,
-    VDiffHash,
-    HOGHash,
-    CornerCountHash,
-    LineCountHash,
-)
-from utils import MemoizedImage
+from imkl import IMKL
 
-# Config
+# Benchmark config
 IMG_SIZES = [128, 512, 1024]
 IMG_COUNTS = [1, 5, 10, 20]
 REF_SIZE = 512
 N_WARMUP = 10
 N_RUNS = 20
 
+# Hasher config
+MKL_CONFIG = """
+shared_preproc:
+  edges: [false]
+  log_polar: [false]
 
-def make_hashes():
-    return {
-        "ColorHash": ColorHash(img_size=64),
-        "PerceptualHash": PerceptualHash(
-            hash_size=16, highfreq_factor=4, thresh="mean"
-        ),
-        "PixelHash": PixelHash(hash_size=32, thresh="mean"),
-        "WaveletHash": WaveletHash(hash_size=16, scale=4, thresh="mean"),
-        "HDiffHash": HDiffHash(hash_size=32),
-        "VDiffHash": VDiffHash(hash_size=32),
-        "HOGHash": HOGHash(img_size=64, thresh="mean"),
-        "CornerCountHash": CornerCountHash(img_size=64, hash_dim=32),
-        "LineCountHash": LineCountHash(img_size=64, hash_dim=32),
-    }
+kernels:
+  - class: ColorHash
+    params:
+      img_size: 64
+  - class: PerceptualHash
+    params:
+      hash_size: 16
+      highfreq_factor: 4
+      thresh: mean
+  - class: PixelHash
+    params:
+      hash_size: 32
+      thresh: mean
+  - class: WaveletHash
+    params:
+      hash_size: 16
+      scale: 4
+      thresh: mean
+  - class: HDiffHash
+    params:
+      hash_size: 32
+  - class: VDiffHash
+    params:
+      hash_size: 32
+  - class: HOGHash
+    params:
+      img_size: 64
+      thresh: mean
+  - class: CornerCountHash
+    params:
+      img_size: 64
+      hash_dim: 32
+  - class: LineCountHash
+    params:
+      img_size: 64
+      hash_dim: 32
+
+fit_params:
+  policy: cka
+  topk: 0
+  normalize: true
+"""
+
+m = IMKL(MKL_CONFIG)
+hash_names = [type(hf).__name__ for hf in m.hash_funcs]
+num_hash_range = list(range(1, m.num_hash + 1))
+n_hashes = m.num_hash
 
 
 def rand_img(h, w):
@@ -61,41 +87,29 @@ def bench(fn):
     return float(np.median(times)), float(np.std(times))
 
 
-def run_hashes(hashes_dict, imgs):
-    memos = [MemoizedImage(img) for img in imgs]
-    return {
-        i: np.array([hf.feat(m) for m in memos], dtype=np.uint8)
-        for i, hf in enumerate(hashes_dict.values())
-    }
-
-
 # Per-hash latency
 hash_lat = defaultdict(dict)
-hash_names = list(make_hashes().keys())
 for size in IMG_SIZES:
     img = rand_img(size, size)
-    hashes = make_hashes()
-    for name, hf in hashes.items():
-        hash_lat[name][size] = bench(lambda hf=hf, img=img: hf.feat(MemoizedImage(img)))
+    for k, name in enumerate(hash_names):
+        m.hash_funcs, saved = m.hash_funcs[k : k + 1], m.hash_funcs
+        hash_lat[name][size] = bench(lambda i=img: m.hash([i]))
+        m.hash_funcs = saved
 # Latency of hash() vs num_hashes
-all_hashes = make_hashes()
-all_hash_names = list(all_hashes.keys())
-num_hash_range = list(range(1, len(all_hash_names) + 1))
 lat2 = {n: {} for n in IMG_COUNTS}
 for n_img in IMG_COUNTS:
     imgs = [rand_img(REF_SIZE, REF_SIZE) for _ in range(n_img)]
     for k in num_hash_range:
-        subset = {n: all_hashes[n] for n in all_hash_names[:k]}
-        lat2[n_img][k] = bench(lambda s=subset, i=imgs: run_hashes(s, i))
+        m.hash_funcs, saved = m.hash_funcs[:k], m.hash_funcs
+        lat2[n_img][k] = bench(lambda i=imgs: m.hash(i))
+        m.hash_funcs = saved
 # Latency of hash() vs image size
-all_hashes_fixed = make_hashes()
-n_hashes = len(all_hashes_fixed)
 lat3 = {n: {} for n in IMG_COUNTS}
 for n_img in IMG_COUNTS:
     for size in IMG_SIZES:
         imgs = [rand_img(size, size) for _ in range(n_img)]
-        lat3[n_img][size] = bench(lambda h=all_hashes_fixed, i=imgs: run_hashes(h, i))
-# Plots
+        lat3[n_img][size] = bench(lambda i=imgs: m.hash(i))
+
 PALETTE = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 IMG_COLORS = {n: PALETTE[i] for i, n in enumerate(IMG_COUNTS)}
 MARKERS = ["o", "s", "^"]
@@ -126,7 +140,7 @@ ax1.set_xticklabels(hash_names, rotation=35, ha="right", fontsize=8)
 ax1.legend(title="Image size")
 ax1.grid(axis="y", alpha=0.3)
 ax1.set_yscale("log")
-# Plot 2: Latency vs num_hashes
+# Plot 2: latency vs num_hashes
 ax2 = fig.add_subplot(2, 2, 2)
 for n_img in IMG_COUNTS:
     meds = [lat2[n_img][k][0] for k in num_hash_range]
@@ -152,7 +166,7 @@ ax2.set_xticks(num_hash_range)
 ax2.set_xticklabels([str(k) for k in num_hash_range])
 ax2.legend(title="# images")
 ax2.grid(alpha=0.3)
-# Plot 3: Latency vs num_images
+# Plot 3: latency vs num_images
 ax3 = fig.add_subplot(2, 2, 3)
 for i, size in enumerate(IMG_SIZES):
     meds = [lat3[n][size][0] for n in IMG_COUNTS]
@@ -176,7 +190,7 @@ ax3.set_ylabel("Latency (ms)")
 ax3.set_xticks(IMG_COUNTS)
 ax3.legend(title="Image size")
 ax3.grid(alpha=0.3)
-# Plot 4: Latency vs image size
+# Plot 4: latency vs image size
 ax4 = fig.add_subplot(2, 2, 4)
 for n_img in IMG_COUNTS:
     meds = [lat3[n_img][size][0] for size in IMG_SIZES]
@@ -201,8 +215,8 @@ ax4.set_xticks(IMG_SIZES)
 ax4.set_xticklabels([f"{s}×{s}" for s in IMG_SIZES])
 ax4.legend(title="# images")
 ax4.grid(alpha=0.3)
+# Package and save plot
 plt.tight_layout()
 out_dir = os.path.join(os.path.dirname(__file__), "..", "assets")
 os.makedirs(out_dir, exist_ok=True)
-# Save profiling plots to the assets/ folder
 plt.savefig(os.path.join(out_dir, "hash_benchmark.png"), dpi=150, bbox_inches="tight")

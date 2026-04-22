@@ -4,7 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 import onnxruntime as ort
 
-from utils import ImagePreprocTransforms, MemoizedImage
+from .utils import ImagePreprocTransforms, MemoizedImage
 
 
 class ImageHash(ABC):
