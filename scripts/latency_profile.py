@@ -6,7 +6,7 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import matplotlib
 
-# matplotlib.use("Agg")
+matplotlib.use("Agg")
 
 from imkl import IMKL
 
