@@ -41,6 +41,7 @@ class IMKL:
         self.num_hash = len(self.hash_funcs)
         # Sort hash functions by descending order of input image sizes
         self.hash_funcs.sort(key=lambda hf: hf.img_area, reverse=True)
+        self.hash_names = [hf.__class__.__name__ for hf in self.hash_funcs]
         # Weight vector tracking kernel separability per hash (fit() updates this variable)
         self.weights = np.ones((self.num_hash,), dtype=np.float32) / self.num_hash
         # Params for algorithm used to estimate weights per kernel ("cka" or "rayleigh")
@@ -62,8 +63,10 @@ class IMKL:
         """
         imgs = [MemoizedImage(img) for img in imgs]
         return {
-            p: np.array([hash.feat(img) for img in imgs], dtype=np.uint8)
-            for p, hash in enumerate(self.hash_funcs)
+            hash.__class__.__name__: np.array(
+                [hash.feat(img) for img in imgs], dtype=np.uint8
+            )
+            for hash in self.hash_funcs
         }
 
     def combine_kernels(self, kernels: NDArray[np.float32]) -> NDArray[np.float32]:
@@ -87,24 +90,22 @@ class IMKL:
         Computes a stack of kernel matrices using multiple hash functions.
 
         Args:
-            hashes: Dict mapping a hash function id to a list of hash values.
+            hashes: Dict mapping a hash function name to a list of hash values.
             center: If true, will apply centering to each kernel matrix.
         Returns:
             A (K x N x N) np.float32 array in [-1, 1] that is a stack of similarity matrices.
         """
         if not hashes:
             return np.empty((self.num_hash, 0, 0), dtype=np.float32)
-        N = hashes[0].shape[0]
         K = np.array(
             [
-                hash_func.hamming_batch(
-                    hashes[p], invert=True, gamma=0.0, relative=True
-                )
-                for p, hash_func in enumerate(self.hash_funcs)
+                hf.hamming_batch(hashes[name], invert=True, gamma=0.0, relative=True)
+                for name, hf in zip(self.hash_names, self.hash_funcs)
             ],
             dtype=np.float32,
         )
         if center:
+            N = K.shape[-1]  # K should have shape [num hash x hash_dim x hash_dim]
             # Apply centering to each kernel
             H = np.eye(N) - np.ones((N, N)) / N
             for p in range(K.shape[0]):
